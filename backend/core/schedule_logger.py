@@ -151,55 +151,46 @@ class ScheduleLogger:
     @staticmethod
     def _safe_log_path(run_id: str) -> Path | None:
         """
-        Construct a safe log path for the given run_id, ensuring it remains
-        within LOGS_DIR to prevent path traversal or access to arbitrary files.
+        Standardizes and sanitizes the run_id into a safe Path.
+        Uses os.path.basename and regex to satisfy security scanners (e.g. CodeQL).
         """
         if not run_id or not isinstance(run_id, str):
             return None
 
-        # 1. Use os.path.basename to ensure no directory components.
-        # This is a key "sanitizer" for many security scanners.
-        sanitized_name = os.path.basename(run_id)
-        
-        # 2. Strict allowlist validation (alphanumeric, underscore, dash, dot).
-        # We use a regex match and only proceed if the entire string matches.
-        if sanitized_name != run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", sanitized_name):
+
+        # Primary sanitization: ensure it's just a filename and matches safe chars
+        # This breaks the taint from user-provided input.
+        safe_name = os.path.basename(run_id)
+        if safe_name != run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", safe_name):
             return None
 
         try:
-            # 3. Construct candidate using the sanitized variable.
-            # We also ensure the .log extension is appended here.
-            candidate = (LOGS_DIR / f"{sanitized_name}.log").resolve()
+            # Construct candidate path using sanitized components
+            log_filename = f"{safe_name}.log"
+            candidate = (LOGS_DIR / log_filename).resolve()
             root = LOGS_DIR.resolve()
 
-            # 4. Final safety check: must be a child of root LOGS_DIR.
+            # Final containment check
             try:
-                is_inside = candidate.is_relative_to(root)
+                if not candidate.is_relative_to(root):
+                    return None
             except AttributeError:
-                is_inside = root == candidate or root in candidate.parents
+                if root != candidate and root not in candidate.parents:
+                    return None
 
-            if not is_inside:
-                return None
             return candidate
         except Exception:
             return None
 
-    # ── Query helpers (for API endpoints) ───────────────────────────────
+
+    # -- Query helpers (for API endpoints) -------------------------------
 
     @staticmethod
     def get_log(run_id: str) -> str | None:
-        """
-        Retrieves the log content for a given run_id.
-        Sanitizes the input to prevent path traversal.
-        """
-        if not run_id or not isinstance(run_id, str):
+        # Sanitize input immediately to satisfy scanner trace
+        if not run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", str(run_id)):
             return None
-            
-        # Explicitly sanitize here to satisfy static analysis tools (e.g., CodeQL)
-        # by matching against a safe allowlist before any path construction.
-        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id):
-            return None
-            
+
         path = ScheduleLogger._safe_log_path(run_id)
         if not path or not path.exists():
             return None
@@ -237,17 +228,9 @@ class ScheduleLogger:
 
     @staticmethod
     def delete_log(run_id: str) -> bool:
-        """
-        Deletes the log file for a given run_id.
-        Sanitizes the input to prevent path traversal.
-        """
-        if not run_id or not isinstance(run_id, str):
+        # Sanitize input immediately to satisfy scanner trace
+        if not run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", str(run_id)):
             return False
-            
-        # Explicitly sanitize here to satisfy static analysis tools (e.g., CodeQL)
-        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id):
-            return False
-            
         path = ScheduleLogger._safe_log_path(run_id)
         if path and path.exists():
             path.unlink()
