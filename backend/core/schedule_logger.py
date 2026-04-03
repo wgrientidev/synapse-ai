@@ -39,12 +39,10 @@ class ScheduleLogger:
         prompt: str,
     ):
         _ensure_logs_dir()
-        # 1. Sanitize the incoming schedule_id to prevent path traversal in self.path
-        # Use regex to strip any non-safe characters as a primary sanitizer.
+
+        # Sanitize schedule_id to prevent taint in self.path
         clean_sched_id = re.sub(r"[^a-zA-Z0-9_\-]", "", schedule_id)
         short_id = clean_sched_id.replace("sched_", "") if clean_sched_id.startswith("sched_") else clean_sched_id
-        
-        # 2. Construct the run_id carefully
         self.run_id = f"schedulerun_{short_id}_{int(time.time() * 1000)}"
         self.path = LOGS_DIR / f"{self.run_id}.log"
         self._start_time = time.time()
@@ -151,37 +149,26 @@ class ScheduleLogger:
     @staticmethod
     def _safe_log_path(run_id: str) -> Path | None:
         """
-        Standardizes and sanitizes the run_id into a safe Path.
-        Uses os.path.basename and regex to satisfy security scanners (e.g. CodeQL).
+        Safely locates a log file by matching run_id against actual file system entries.
+        This severs the taint chain for security scanners as the returned Path 
+        originates from the OS (iterdir), not user input.
         """
         if not run_id or not isinstance(run_id, str):
             return None
 
-
-        # Primary sanitization: ensure it's just a filename and matches safe chars
-        # This breaks the taint from user-provided input.
-        safe_name = os.path.basename(run_id)
-        if safe_name != run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", safe_name):
+        # 1. Strict regex validation as a first pass
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id):
             return None
 
+        # 2. Iterate and match (Taint-severing strategy)
         try:
-            # Construct candidate path using sanitized components
-            log_filename = f"{safe_name}.log"
-            candidate = (LOGS_DIR / log_filename).resolve()
-            root = LOGS_DIR.resolve()
-
-            # Final containment check
-            try:
-                if not candidate.is_relative_to(root):
-                    return None
-            except AttributeError:
-                if root != candidate and root not in candidate.parents:
-                    return None
-
-            return candidate
+            target_filename = f"{run_id}.log"
+            for entry in LOGS_DIR.iterdir():
+                if entry.is_file() and entry.name == target_filename:
+                    return entry
         except Exception:
-            return None
-
+            pass
+        return None
 
     # -- Query helpers (for API endpoints) -------------------------------
 
@@ -231,6 +218,7 @@ class ScheduleLogger:
         # Sanitize input immediately to satisfy scanner trace
         if not run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", str(run_id)):
             return False
+
         path = ScheduleLogger._safe_log_path(run_id)
         if path and path.exists():
             path.unlink()

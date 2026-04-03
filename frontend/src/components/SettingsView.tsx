@@ -3,7 +3,7 @@
 /* eslint-disable react/no-unescaped-entities */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, X, Shield, Trash, Cpu, Cloud, Database, LayoutGrid, Bot, Wrench, Server, FolderGit2, Workflow, ScrollText, MessageSquare, Clock } from 'lucide-react';
+import { Settings, X, Shield, Trash, Cpu, Cloud, Database, LayoutGrid, Bot, Wrench, Server, FolderGit2, Workflow, ScrollText, MessageSquare, Clock, ArrowLeftRight } from 'lucide-react';
 
 import { useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
@@ -30,6 +30,7 @@ import { LogsTab } from './settings/LogsTab';
 import { MessagingTab } from './settings/MessagingTab';
 import { UsageTab } from './settings/UsageTab';
 import { SchedulesTab } from './settings/SchedulesTab';
+import { ImportExportTab } from './settings/ImportExportTab';
 
 
 export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }) => {
@@ -780,7 +781,8 @@ export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }
         { id: 'workspace', label: 'Integrations', icon: Cloud },
         { id: 'schedules', label: 'Schedules', icon: Clock },
         { id: 'memory', label: 'Memory', icon: Trash },
-        { id: 'logs', label: 'Logs', icon: ScrollText }
+        { id: 'logs', label: 'Logs', icon: ScrollText },
+        { id: 'import_export', label: 'Import / Export', icon: ArrowLeftRight },
     ];
 
     return (
@@ -827,7 +829,20 @@ export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }
                 </div>
             )}
 
-            <div className={`flex-1 overflow-y-auto p-6 md:p-12 ${activeTab === 'orchestrations' || activeTab === 'logs' || activeTab === 'messaging' || activeTab === 'usage' || activeTab === 'schedules' ? 'hidden' : ''}`}>
+            {/* Import/Export tab: scrollable layout */}
+            {activeTab === 'import_export' && (
+                <div className="flex-1 overflow-y-auto p-6 md:p-12">
+                    <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <div className="mb-8">
+                            <h1 className="text-3xl font-bold mb-2 text-zinc-50">Import / Export</h1>
+                            <p className="text-zinc-500 text-sm">Export your orchestrations, agents, MCP servers, and tools as a portable bundle, or import one from another Synapse instance.</p>
+                        </div>
+                        <ImportExportTab />
+                    </div>
+                </div>
+            )}
+
+            <div className={`flex-1 overflow-y-auto p-6 md:p-12 ${activeTab === 'orchestrations' || activeTab === 'logs' || activeTab === 'messaging' || activeTab === 'usage' || activeTab === 'schedules' || activeTab === 'import_export' ? 'hidden' : ''}`}>
                 <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
                     <div className="mb-8">
