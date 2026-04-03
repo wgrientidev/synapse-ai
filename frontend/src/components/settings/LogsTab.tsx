@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Trash2, Bot, Workflow, ScrollText } from 'lucide-react';
+import { RefreshCw, Trash2, Bot, Workflow, ScrollText, Clock } from 'lucide-react';
 
-type LogType = 'agents' | 'orchestrations';
+type LogType = 'agents' | 'orchestrations' | 'schedules';
 
 interface LogSummary {
     run_id: string;
@@ -15,6 +15,11 @@ interface LogSummary {
     // Orchestration log fields
     orchestration_name?: string;
     orchestration_id?: string;
+    // Schedule log fields
+    schedule_name?: string;
+    schedule_id?: string;
+    target_type?: string;
+    prompt?: string;
     // Common
     started_at?: string;
     user_input?: string;
@@ -130,6 +135,17 @@ export const LogsTab = () => {
                     <Workflow className="h-3.5 w-3.5" />
                     Orchestration Logs
                 </button>
+                <button
+                    onClick={() => setLogType('schedules')}
+                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-all ${
+                        logType === 'schedules'
+                            ? 'bg-white text-black'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                    }`}
+                >
+                    <Clock className="h-3.5 w-3.5" />
+                    Schedule Logs
+                </button>
                 <div className="ml-auto flex items-center gap-3">
                     <span className="text-xs text-zinc-600">{logs.length} log{logs.length !== 1 ? 's' : ''}</span>
                     <button
@@ -158,8 +174,8 @@ export const LogsTab = () => {
                         <>
                             {sessionOrder.map(sid => {
                                 const sessionLogs = groupedLogs[sid];
-                                const hasRealSessionInput = sessionLogs.some(l => l.session_id && l.user_input);
-                                const sessionInput = sessionLogs.find(l => l.user_input)?.user_input;
+                                const sessionInput = sessionLogs.find(l => l.user_input || l.prompt)?.user_input
+                                    || sessionLogs.find(l => l.prompt)?.prompt;
                                 const sessionDisplayName = sid.startsWith('nosession_') ? 'Individual Run' : `Session: ${sid.slice(-8)}`;
 
                                 return (
@@ -174,10 +190,14 @@ export const LogsTab = () => {
                                             const isSelected = selectedId === log.run_id;
                                             const name = logType === 'agents'
                                                 ? (log.agent_name || log.run_id)
-                                                : (log.orchestration_name || log.run_id);
+                                                : logType === 'orchestrations'
+                                                    ? (log.orchestration_name || log.run_id)
+                                                    : (log.schedule_name || log.run_id);
                                             const subtitle = logType === 'agents'
                                                 ? log.source
-                                                : log.orchestration_id;
+                                                : logType === 'orchestrations'
+                                                    ? log.orchestration_id
+                                                    : log.target_type;
 
                                             return (
                                                 <div

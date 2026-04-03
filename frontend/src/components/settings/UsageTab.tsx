@@ -18,6 +18,21 @@ interface UsageSummary {
     total_requests: number;
     by_model: ModelStat[];
     by_session: SessionStat[];
+    by_schedule?: ScheduleStat[];
+}
+interface ScheduleStat {
+    run_id: string;
+    schedule_id: string;
+    agent_id: string;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    estimated_cost: number;
+    models_used: string[];
+    agents_used: string[];
+    first_ts: string;
+    last_ts: string;
 }
 interface ModelStat {
     model: string; provider: string; requests: number;
@@ -768,6 +783,43 @@ export function UsageTab() {
                                 <ModelBar key={stat.model} stat={stat} maxCost={maxModelCost} />
                             ))}
                         </div>
+
+                        {/* Schedule Costs */}
+                        {(summary.by_schedule?.length ?? 0) > 0 && (
+                            <div className="bg-zinc-900/60 border border-white/5 p-5">
+                                <div className="flex items-center gap-2 mb-5">
+                                    <Clock className="w-4 h-4 text-zinc-400" />
+                                    <h2 className="text-sm font-semibold text-white tracking-wide">Schedule Costs</h2>
+                                    <span className="text-xs text-zinc-600">{summary.by_schedule!.length} schedule run{summary.by_schedule!.length !== 1 ? 's' : ''}</span>
+                                </div>
+                                {summary.by_schedule!.map(s => (
+                                    <div key={s.run_id} className="flex items-center gap-4 py-3 border-b border-white/5 last:border-0">
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <Clock className="w-3.5 h-3.5 text-sky-400" />
+                                            <span className="text-[10px] px-2 py-0.5 font-medium border border-sky-800/50 text-sky-400 bg-sky-950/40 uppercase tracking-wider">schedule</span>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs text-zinc-400 font-mono truncate" title={s.run_id}>{s.run_id}</p>
+                                            <p className="text-[10px] text-zinc-600 truncate">{s.agents_used?.join(', ')}</p>
+                                        </div>
+                                        <div className="flex items-center gap-5 text-right shrink-0">
+                                            <div>
+                                                <p className="text-[10px] text-zinc-500">Turns</p>
+                                                <p className="text-sm font-semibold text-white">{s.requests}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] text-zinc-500">Tokens</p>
+                                                <p className="text-sm font-semibold text-white">{fmtK(s.total_tokens)}</p>
+                                            </div>
+                                            <div className="min-w-[70px]">
+                                                <p className="text-[10px] text-zinc-500">Cost</p>
+                                                <p className="text-sm font-semibold text-sky-400">${s.estimated_cost.toFixed(4)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         {/* Session History */}
                         <div className="bg-zinc-900/60 border border-white/5 p-5">

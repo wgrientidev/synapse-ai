@@ -3,7 +3,7 @@
 /* eslint-disable react/no-unescaped-entities */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, X, Shield, Trash, Cpu, Cloud, Database, LayoutGrid, Bot, Wrench, Server, FolderGit2, Workflow, ScrollText, MessageSquare } from 'lucide-react';
+import { Settings, X, Shield, Trash, Cpu, Cloud, Database, LayoutGrid, Bot, Wrench, Server, FolderGit2, Workflow, ScrollText, MessageSquare, Clock } from 'lucide-react';
 
 import { useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
@@ -29,6 +29,7 @@ import { OrchestrationTab } from './settings/OrchestrationTab';
 import { LogsTab } from './settings/LogsTab';
 import { MessagingTab } from './settings/MessagingTab';
 import { UsageTab } from './settings/UsageTab';
+import { SchedulesTab } from './settings/SchedulesTab';
 
 
 export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }) => {
@@ -735,6 +736,7 @@ export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }
         { id: 'models', label: 'Models', icon: Cpu },
         ...(messagingEnabled ? [{ id: 'messaging', label: 'Messaging', icon: MessageSquare }] : []),
         { id: 'workspace', label: 'Integrations', icon: Cloud },
+        { id: 'schedules', label: 'Schedules', icon: Clock },
         { id: 'memory', label: 'Memory', icon: Trash },
         { id: 'logs', label: 'Logs', icon: ScrollText }
     ];
@@ -776,7 +778,14 @@ export const SettingsView = ({ initialTab = 'general' }: { initialTab?: string }
                 </div>
             )}
 
-            <div className={`flex-1 overflow-y-auto p-6 md:p-12 ${activeTab === 'orchestrations' || activeTab === 'logs' || activeTab === 'messaging' || activeTab === 'usage' ? 'hidden' : ''}`}>
+            {/* Schedules tab: full-bleed layout */}
+            {activeTab === 'schedules' && (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    <SchedulesTab />
+                </div>
+            )}
+
+            <div className={`flex-1 overflow-y-auto p-6 md:p-12 ${activeTab === 'orchestrations' || activeTab === 'logs' || activeTab === 'messaging' || activeTab === 'usage' || activeTab === 'schedules' ? 'hidden' : ''}`}>
                 <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
                     <div className="mb-8">

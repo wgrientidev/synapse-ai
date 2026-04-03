@@ -63,3 +63,31 @@ async def delete_orchestration_log(run_id: str):
     if OrchestrationLogger.delete_log(run_id):
         return {"status": "deleted", "run_id": run_id}
     raise HTTPException(status_code=404, detail="Log not found")
+
+
+# ── Schedule Logs ──────────────────────────────────────────────────────
+
+@router.get("/api/logs/schedules")
+async def list_schedule_logs(limit: int = 100, offset: int = 0):
+    """List recent schedule run logs (summary only)."""
+    from core.schedule_logger import ScheduleLogger
+    return ScheduleLogger.list_logs(limit=limit, offset=offset)
+
+
+@router.get("/api/logs/schedules/{run_id}")
+async def get_schedule_log(run_id: str):
+    """Get full detailed log for a specific schedule run (plain text)."""
+    from core.schedule_logger import ScheduleLogger
+    log = ScheduleLogger.get_log(run_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Log not found")
+    return PlainTextResponse(log)
+
+
+@router.delete("/api/logs/schedules/{run_id}")
+async def delete_schedule_log(run_id: str):
+    """Delete a specific schedule log."""
+    from core.schedule_logger import ScheduleLogger
+    if ScheduleLogger.delete_log(run_id):
+        return {"status": "deleted", "run_id": run_id}
+    raise HTTPException(status_code=404, detail="Log not found")
