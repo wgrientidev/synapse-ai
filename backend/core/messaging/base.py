@@ -43,6 +43,9 @@ class MessagingAdapter(ABC):
         self.platform: str = channel["platform"]
         self.agent_id: str = channel.get("agent_id", "default")
         self.multi_agent_mode: bool = channel.get("multi_agent_mode", False)
+        # Tracks the most recent chat_id that sent a message — used for proactive
+        # schedule completion notifications when no notify_chat_id is configured.
+        self._last_chat_id: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     # Abstract interface
@@ -169,6 +172,9 @@ class MessagingAdapter(ABC):
         """
         if session_id is None:
             session_id = f"{self.platform}_{self.channel_id}_{chat_id}"
+
+        # Track most recent chat_id for proactive schedule notifications
+        self._last_chat_id = chat_id
 
         # ── 1. Check for human-step future waiting on this channel ──────
         # If an orchestration is paused waiting for human input on this channel,
