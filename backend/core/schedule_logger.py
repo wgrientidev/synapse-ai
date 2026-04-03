@@ -5,6 +5,7 @@ Mirrors the design of agent_logger.py exactly.
 import asyncio
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -38,7 +39,12 @@ class ScheduleLogger:
         prompt: str,
     ):
         _ensure_logs_dir()
-        short_id = schedule_id.replace("sched_", "") if schedule_id.startswith("sched_") else schedule_id
+        # 1. Sanitize the incoming schedule_id to prevent path traversal in self.path
+        # Use regex to strip any non-safe characters as a primary sanitizer.
+        clean_sched_id = re.sub(r"[^a-zA-Z0-9_\-]", "", schedule_id)
+        short_id = clean_sched_id.replace("sched_", "") if clean_sched_id.startswith("sched_") else clean_sched_id
+        
+        # 2. Construct the run_id carefully
         self.run_id = f"schedulerun_{short_id}_{int(time.time() * 1000)}"
         self.path = LOGS_DIR / f"{self.run_id}.log"
         self._start_time = time.time()
@@ -148,19 +154,28 @@ class ScheduleLogger:
         Construct a safe log path for the given run_id, ensuring it remains
         within LOGS_DIR to prevent path traversal or access to arbitrary files.
         """
-        try:
-            # Avoid obvious traversal via path separators or leading dots.
-            if not run_id or any(c in run_id for c in ("/", "\\", os.sep, os.altsep or "")):
-                return None
+        if not run_id or not isinstance(run_id, str):
+            return None
 
-            candidate = (LOGS_DIR / f"{run_id}.log").resolve()
+        # 1. Use os.path.basename to ensure no directory components.
+        # This is a key "sanitizer" for many security scanners.
+        sanitized_name = os.path.basename(run_id)
+        
+        # 2. Strict allowlist validation (alphanumeric, underscore, dash, dot).
+        # We use a regex match and only proceed if the entire string matches.
+        if sanitized_name != run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", sanitized_name):
+            return None
+
+        try:
+            # 3. Construct candidate using the sanitized variable.
+            # We also ensure the .log extension is appended here.
+            candidate = (LOGS_DIR / f"{sanitized_name}.log").resolve()
             root = LOGS_DIR.resolve()
 
+            # 4. Final safety check: must be a child of root LOGS_DIR.
             try:
-                # Python 3.9+: use is_relative_to if available
-                is_inside = candidate.is_relative_to(root)  # type: ignore[attr-defined]
+                is_inside = candidate.is_relative_to(root)
             except AttributeError:
-                # Fallback for older Python versions
                 is_inside = root == candidate or root in candidate.parents
 
             if not is_inside:
@@ -173,6 +188,18 @@ class ScheduleLogger:
 
     @staticmethod
     def get_log(run_id: str) -> str | None:
+        """
+        Retrieves the log content for a given run_id.
+        Sanitizes the input to prevent path traversal.
+        """
+        if not run_id or not isinstance(run_id, str):
+            return None
+            
+        # Explicitly sanitize here to satisfy static analysis tools (e.g., CodeQL)
+        # by matching against a safe allowlist before any path construction.
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id):
+            return None
+            
         path = ScheduleLogger._safe_log_path(run_id)
         if not path or not path.exists():
             return None
@@ -210,6 +237,17 @@ class ScheduleLogger:
 
     @staticmethod
     def delete_log(run_id: str) -> bool:
+        """
+        Deletes the log file for a given run_id.
+        Sanitizes the input to prevent path traversal.
+        """
+        if not run_id or not isinstance(run_id, str):
+            return False
+            
+        # Explicitly sanitize here to satisfy static analysis tools (e.g., CodeQL)
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id):
+            return False
+            
         path = ScheduleLogger._safe_log_path(run_id)
         if path and path.exists():
             path.unlink()
