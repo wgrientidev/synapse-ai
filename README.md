@@ -51,6 +51,10 @@ Most AI agent frameworks give you a loop and a few toy tools. Synapse gives you 
 
 - **ReAct reasoning engine** — agents think, act, observe, and iterate up to 30 turns per task
 - **8 built-in tool servers** ready to use out of the box
+- **Advanced Python Tool** — dynamically write and execute Python code in a secure sandbox
+- **Schedule Agents** — trigger agents and orchestrations automatically using a cron schedule
+- **Messaging Apps** — effortlessly connect agents to messaging platforms like Slack and Discord
+- **Import & Export** — portably share orchestrations, agents, and MCP server configs
 - **Plug in any MCP server** — local stdio or remote HTTP, added in seconds via the UI
 - **Build custom tools with n8n** — turn any automation workflow into an agent tool with zero code
 - **Orchestrate multiple agents** as a DAG — parallel branches, routing logic, loops, human checkpoints
@@ -122,11 +126,6 @@ Synapse prefixes external tools with `ext_mcp_` to prevent naming collisions. An
 | Figma | `https://mcp.figma.com/mcp` | PAT (`FIGMA_PERSONAL_ACCESS_TOKEN`) |
 | Fetch | `https://remote.mcpservers.org/fetch/mcp` | None |
 
-**Examples you can add manually:**
-- Zerodha (stock trading): `https://mcp.kite.trade/mcp`
-- GitHub, Linear, Notion, Slack, Stripe — any service with an MCP endpoint
-- Your own self-hosted MCP server
-
 Find more on the [MCP servers registry](https://github.com/modelcontextprotocol/servers).
 
 ### Local (stdio) MCP Servers
@@ -184,14 +183,14 @@ Create specialized agents in **Settings → Agents**. Each agent is an independe
 }
 ```
 
-### Example: Stock Agent
+### Example: Developer Agent
 
 ```json
 {
-  "name": "NSE Stock Agent",
-  "description": "Intraday analysis and portfolio management",
-  "tools": ["ext_mcp_zerodha_*", "parse_pdf", "execute_python", "vault_write", "get_datetime"],
-  "system_prompt": "You are a quantitative trader. Access live market data, analyze positions, run calculations in Python, and provide actionable trading insights."
+  "name": "Strict Developer",
+  "description": "Writes production-ready code, creates APIs, and runs self-correcting tests",
+  "tools": ["execute_python", "mcp_github", "mcp_slack", "vault_write", "vault_read"],
+  "system_prompt": "You are a senior backend engineer. Write robust, functional code, execute it using the Python tool to verify logic, and save the final output to the vault."
 }
 ```
 
@@ -415,6 +414,17 @@ backend/
 **MCP Transport:** Local servers use stdio transport. Remote servers use Streamable HTTP (SSE) with OAuth 2.0 PKCE or Bearer token auth. Synapse manages token refresh and session lifecycle automatically.
 
 **Default MCP Servers:** Sequential Thinking and Memory servers start automatically with Synapse — no configuration required. They give every agent structured reasoning chains and persistent cross-session memory out of the box.
+
+---
+
+## Upcoming Features (Roadmap)
+
+We are constantly improving Synapse AI. Here are a few features currently in the pipeline:
+
+- **RAG Agent Type:** A specialized agent type with built-in native support for Retrieval-Augmented Generation workflows.
+- **AI Builder Agent:** A native agent that can dynamically design workflows, orchestrations, and build other agents on the fly based on your prompts.
+- **Spawn Sub-Agent Tool:** Allow agents to natively spawn and delegate tasks to temporary sub-agents mid-execution.
+- **Compact Conversations:** A conversation option optimized to handle large contexts smoothly, compressing message history automatically.
 
 ---
 
