@@ -444,7 +444,8 @@ We are constantly improving Synapse AI. Here are a few features currently in the
 - **AI Builder Agent:** A native agent that can dynamically design workflows, orchestrations, and build other agents on the fly based on your prompts.
 - **Spawn Sub-Agent Tool:** Allow agents to natively spawn and delegate tasks to temporary sub-agents mid-execution.
 - **Compact Conversations:** A conversation option optimized to handle large contexts smoothly, compressing message history automatically.
-
+- **Vault Management:** Enhanced user control over the existing Vault system, allowing for explicit file handling and the ability to inject documents or skills directly into system prompts.
+- **Global Variable:** Support for defining global variables that can be dynamically injected into agent prompts, orchestrations, custom tools, and MCP server environments.
 ---
 
 ## Contributing
