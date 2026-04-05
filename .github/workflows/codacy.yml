@@ -82,7 +82,8 @@ jobs:
       # 3. Memory-safe SARIF patch to bypass GitHub's strict category rules
       - name: Patch SARIF Categories for GitHub
         run: |
-          python3 -c '
+          # Using sudo because the Codacy Docker action creates the file as 'root'
+          sudo python3 -c '
           import json, sys, os
 
           # Fallback if Codacy CLI failed to generate a valid file
