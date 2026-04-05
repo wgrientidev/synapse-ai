@@ -85,6 +85,18 @@ def warn(msg):    print(f"{C.YELLOW}[!!]  {msg}{C.RESET}")
 def err(msg):     print(f"{C.RED}[X]  {msg}{C.RESET}")
 def info(msg):    print(f"   {msg}")
 
+def _redact_url(url: str) -> str:
+    """Return a copy of a connection URL with the password redacted."""
+    try:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        if parsed.password:
+            netloc = parsed.netloc.replace(f":{parsed.password}@", ":***@")
+            url = parsed._replace(netloc=netloc).geturl()
+    except Exception:
+        pass
+    return url
+
 # ---------------------------------------------------------------------------
 # Input helpers
 # ---------------------------------------------------------------------------
@@ -670,7 +682,7 @@ def ask_coding_agent(cfg):
     
     if db_url:
         cfg["sql_connection_string"] = db_url
-        ok(f"Database URL: {db_url}")
+        ok(f"Database URL: {_redact_url(db_url)}")
         
         # Test connection
         info("Testing PostgreSQL connection...")
@@ -688,7 +700,7 @@ def ask_coding_agent(cfg):
                     return
         except ImportError:
             info("(psycopg2 will be installed with backend dependencies)")
-            ok(f"Database URL saved: {db_url}")
+            ok(f"Database URL saved: {_redact_url(db_url)}")
             return
     else:
         warn("Could not auto-create database. Please set it up manually.")
@@ -696,7 +708,7 @@ def ask_coding_agent(cfg):
                   default="postgresql://postgres:@localhost:5432/synapse")
         if url.startswith("postgresql"):
             cfg["sql_connection_string"] = url
-            ok(f"Saved: {url}")
+            ok(f"Saved: {_redact_url(url)}")
         else:
             err("Invalid URL format.")
             sys.exit(1)
