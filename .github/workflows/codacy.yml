@@ -149,9 +149,8 @@ jobs:
             gzip -c "$file" > payload.gz
             b64_payload=$(base64 -w0 payload.gz)
             
-            # Upload directly via the GitHub CLI API with --fail to catch silent errors
+            # Upload directly via the GitHub CLI API (Removed the invalid flag)
             gh api \
-              --fail \
               --method POST \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
