@@ -110,21 +110,26 @@ jobs:
                       grouped_runs[tool_name] = {
                           "tool": run.get("tool", {"driver": {"name": tool_name, "rules": []}}),
                           "results": [],
-                          "automationDetails": {"id": f"codacy-{clean_name}"}
+                          "automationDetails": {"id": "codacy-" + clean_name}
                       }
                   else:
                       # We already have a run for this tool. Merge the rules to avoid duplicates.
                       existing_rules = grouped_runs[tool_name].get("tool", {}).get("driver", {}).get("rules", [])
-                      existing_rule_ids = {r.get("id") for r in existing_rules if "id" in r}
+                      existing_rule_ids = set()
+                      for r in existing_rules:
+                          if "id" in r:
+                              existing_rule_ids.add(r["id"])
                       
                       new_rules = run.get("tool", {}).get("driver", {}).get("rules", [])
                       for rule in new_rules:
                           if rule.get("id") not in existing_rule_ids:
                               grouped_runs[tool_name]["tool"]["driver"]["rules"].append(rule)
-                              existing_rule_ids.add(rule.get("id"))
+                              if "id" in rule:
+                                  existing_rule_ids.add(rule["id"])
                   
                   # Merge the actual vulnerabilities/results into the group
-                  grouped_runs[tool_name]["results"].extend(run.get("results", []))
+                  if "results" in run and run["results"]:
+                      grouped_runs[tool_name]["results"].extend(run["results"])
                   
               # Replace the 33 fragment runs with our cleanly grouped runs (max 4)
               data["runs"] = list(grouped_runs.values())
@@ -132,7 +137,10 @@ jobs:
           # Write safely to disk
           with open("results.sarif", "w") as f:
               json.dump(data, f, indent=2)
-          print(f"Successfully compressed into {len(data.get('runs', []))} runs for GitHub Advanced Security.")
+          
+          # Safely print the final run count without breaking Bash quotes
+          num_runs = len(data.get("runs", []))
+          print("Successfully compressed into " + str(num_runs) + " runs for GitHub Advanced Security.")
           '
 
       # 4. Upload directly to the GitHub Security Tab
