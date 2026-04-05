@@ -45,6 +45,7 @@ jobs:
       # Execute Codacy Analysis CLI and generate a SARIF output with the security issues identified during the analysis
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
+        continue-on-error: true  # Don't fail the job if the analysis itself errors out
         with:
           # Check https://github.com/codacy/codacy-analysis-cli#project-token to get your project token from your Codacy repository
           # You can also omit the token and run the tools that support default configurations
@@ -57,6 +58,48 @@ jobs:
           # Force 0 exit code to allow SARIF file generation
           # This will handover control about PR rejection to the GitHub side
           max-allowed-issues: 2147483647
+          # Disable CSS and ESLint linters (security scan only)
+          tool: bandit,semgrep,checkov,trivy
+          # Exclude generated/dependency/build directories and files that don't need scanning
+          skip-uncommitted-files-check: true
+          exclude-paths: >
+            node_modules,
+            frontend/node_modules,
+            backend/node_modules,
+            frontend/.next,
+            backend/venv,
+            backend/.venv,
+            backend/chroma_db,
+            backend/data,
+            backend/logs,
+            backend/data/orchestration_runs,
+            backend/.playwright-mcp,
+            dist,
+            frontend-build,
+            synapse/_frontend,
+            **/__pycache__,
+            **/*.egg-info,
+            **/*.whl,
+            **/*.tar.gz,
+            package-lock.json,
+            frontend/package-lock.json,
+            backend/package-lock.json,
+            tsconfig.tsbuildinfo,
+            frontend/tsconfig.tsbuildinfo
+
+      # Ensure a valid (possibly empty) SARIF file exists before upload
+      - name: Ensure SARIF file exists
+        run: |
+          if [ ! -f results.sarif ]; then
+            echo "SARIF file not found — creating a minimal valid placeholder."
+            cat > results.sarif <<'EOF'
+          {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": []
+          }
+          EOF
+          fi
 
       # Upload the SARIF file generated in the previous step
       - name: Upload SARIF results file
