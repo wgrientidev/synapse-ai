@@ -336,11 +336,11 @@ export const CustomToolsTab = ({
                                     <label className="text-[10px] uppercase font-bold text-zinc-500">Webhook URL</label>
                                     {!n8nIntegrated && (
                                         <span className="text-[9px] text-zinc-600">
-                                            (
+                                            (you can also{' '}
                                             <a href="/settings/workspace" className="text-[#ff6d5a] hover:underline">
-                                                Connect n8n
+                                                integrate n8n workflows
                                             </a>
-                                            {' '}for auto-fill)
+                                            )
                                         </span>
                                     )}
                                 </div>
@@ -349,7 +349,7 @@ export const CustomToolsTab = ({
                                     value={draftTool.url}
                                     onChange={e => setDraftTool({ ...draftTool, url: e.target.value })}
                                     className="w-full bg-zinc-900 border border-zinc-800 p-2 text-sm text-white focus:border-white focus:outline-none font-mono"
-                                    placeholder="https://your-n8n.com/webhook/..."
+                                    placeholder="https://example.com/webhook/..."
                                 />
                             </div>
 
@@ -399,25 +399,14 @@ export const CustomToolsTab = ({
                             </div>
 
                             {/* Schemas */}
-                            <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
-                                <div className="space-y-1 flex flex-col min-h-[280px]">
-                                    <label className="text-[10px] uppercase font-bold text-zinc-500">Input Schema (JSON)</label>
-                                    <textarea
-                                        value={draftTool.inputSchemaStr}
-                                        onChange={e => setDraftTool({ ...draftTool, inputSchemaStr: e.target.value })}
-                                        className="w-full flex-1 bg-zinc-950 border border-zinc-800 p-3 text-[10px] font-mono text-zinc-300 focus:border-white focus:outline-none resize-none"
-                                        placeholder='{"type": "object", "properties": {"msg": {"type": "string"}}}'
-                                    />
-                                </div>
-                                <div className="space-y-1 flex flex-col min-h-[280px]">
-                                    <label className="text-[10px] uppercase font-bold text-zinc-500">Output Schema (JSON)</label>
-                                    <textarea
-                                        value={draftTool.outputSchemaStr}
-                                        onChange={e => setDraftTool({ ...draftTool, outputSchemaStr: e.target.value })}
-                                        className="w-full flex-1 bg-zinc-900 border border-zinc-800 p-3 text-[10px] font-mono text-zinc-300 focus:border-white focus:outline-none resize-none"
-                                        placeholder='(Optional) {"properties": {"id": {"type": "string"}}} - Filters response to these keys.'
-                                    />
-                                </div>
+                            <div className="space-y-1 flex flex-col min-h-[280px]">
+                                <label className="text-[10px] uppercase font-bold text-zinc-500">Input Schema (JSON)</label>
+                                <textarea
+                                    value={draftTool.inputSchemaStr}
+                                    onChange={e => setDraftTool({ ...draftTool, inputSchemaStr: e.target.value })}
+                                    className="w-full flex-1 bg-zinc-950 border border-zinc-800 p-3 text-[10px] font-mono text-zinc-300 focus:border-white focus:outline-none resize-none"
+                                    placeholder='{"type": "object", "properties": {"msg": {"type": "string"}}}'
+                                />
                             </div>
                         </div>
                     )}
