@@ -70,10 +70,15 @@ https://github.com/user-attachments/assets/78c526d9-c75b-41fa-9353-589d3207e7db
 
 ## Synapse Orchestration Demo
 
-This demo features a multi-agent content writing orchestration, utilizing gemini-3-flash-preview and gemini-3.1-pro-preview as evaluators. Each agent can be configured with different models based on your specific needs. (Note: The video is sped up 2x to fit on GitHub.)
+### Content Writing Orchestration
+This demo showcases a multi-agent content writing orchestration pipeline. The agents autonomously open a browser, research a user-provided topic, draft the content in a Google Doc, and return the shared link. By default, the worker agents utilize `gemini-3-flash-preview`, while the evaluator agents use `gemini-3.1-pro-preview`. Each agent can be configured with different models based on your specific requirements. (Note: The video is sped up 2x to fit on GitHub.)
 
 https://github.com/user-attachments/assets/4eec5db8-70d0-47b6-8608-f52b1f7b7d68
 
+### Autonomous Code Development & PR Creation
+This demo highlights a multi-agent software development system that writes code and generates pull requests on its own. A human-in-the-loop step is integrated into each stage, allowing you to review and confirm the agents' actions before the system finalizes the PR and outputs the repository link.
+
+https://github.com/user-attachments/assets/95a511e1-e3e9-4812-b9ca-f7f4c28ef80f
 
 ## The Tool Ecosystem
 
