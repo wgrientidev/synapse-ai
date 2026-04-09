@@ -2292,7 +2292,7 @@ def main():
 
     backend_proc = start_backend(backend_port=_backend_port)
 
-    if not wait_for_server(f"http://127.0.0.1:{_backend_port}/docs", "Backend", timeout=90):
+    if not wait_for_server(f"http://127.0.0.1:{_backend_port}/docs", "Backend", timeout=300):
         err("Backend did not start in time. Check the output above for errors.")
         backend_proc.terminate()
         sys.exit(1)
