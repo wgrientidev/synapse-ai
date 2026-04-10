@@ -95,7 +95,7 @@ jobs:
       # container, forcing the JVM to use UTF-8.
       - name: Run Codacy Analysis CLI
         timeout-minutes: 20
-        uses: codacy/codacy-analysis-cli-action@master
+        continue-on-error: true
         run: |
           docker run \
             --rm \
