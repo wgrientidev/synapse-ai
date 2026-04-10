@@ -99,6 +99,7 @@ These run automatically when Synapse starts:
 | **Collect Data** | Generate dynamic forms that pause execution and collect user input. Supports text, number, email, date, phone, and option fields. |
 | **Time** | Natural language date/time parsing. Handles relative offsets, weekday targets, timezone conversions, and complex expressions like "next Friday at 3pm EST". |
 | **Code Search** | Semantic code search across indexed repositories using vector embeddings. Search by natural language query, get back relevant code snippets with file paths and line numbers. |
+| **Web Scraper** | Powerful web scraping powered by crawl4ai. Scrape any URL to clean markdown, extract structured data with CSS schemas, crawl multiple URLs in parallel, capture screenshots, handle infinite-scroll pages, and run multi-step authenticated sessions. Built-in stealth mode bypasses anti-bot protections — works on LinkedIn, financial sites, and JavaScript-heavy pages. |
 
 ### Built-in MCP Servers
 
