@@ -68,10 +68,21 @@ async def create_repo(repo: Repo, background_tasks: BackgroundTasks):
         if r["id"] == repo.id:
             repos[i] = repo.dict()
             save_repos(repos)
+            try:
+                import core.server as _server
+                await _server.restart_filesystem_mcp()
+            except Exception as e:
+                print(f"Warning: Failed to restart filesystem MCP after repo update: {e}")
             return repo
 
     repos.append(repo.dict())
     save_repos(repos)
+
+    try:
+        import core.server as _server
+        await _server.restart_filesystem_mcp()
+    except Exception as e:
+        print(f"Warning: Failed to restart filesystem MCP after adding repo: {e}")
 
     # Auto-index new repos if path exists
     if os.path.isdir(repo.path):
@@ -93,7 +104,29 @@ async def delete_repo(repo_id: str):
     repos = load_repos()
     repos = [r for r in repos if r["id"] != repo_id]
     save_repos(repos)
-    # TODO: also drop table in DB via code_indexer.drop_index(repo_id)
+
+    # Remove deleted repo from all agents' repos list
+    try:
+        from core.routes.agents import load_user_agents, save_user_agents
+        agents = load_user_agents()
+        modified = False
+        for agent in agents:
+            if repo_id in agent.get("repos", []):
+                agent["repos"] = [r for r in agent["repos"] if r != repo_id]
+                modified = True
+        if modified:
+            save_user_agents(agents)
+            print(f"Removed repo {repo_id} from agents.")
+    except Exception as e:
+        print(f"Warning: Failed to remove repo {repo_id} from agents: {e}")
+
+    # Restart filesystem MCP to drop the deleted repo path
+    try:
+        import core.server as _server
+        await _server.restart_filesystem_mcp()
+    except Exception as e:
+        print(f"Warning: Failed to restart filesystem MCP after deleting repo: {e}")
+
     try:
         from services.code_indexer import drop_index
         drop_index(repo_id)
