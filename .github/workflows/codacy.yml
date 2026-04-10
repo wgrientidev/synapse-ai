@@ -53,7 +53,7 @@ jobs:
       # Tag each SARIF with a unique category so GitHub doesn't merge them
       - name: Prepare SARIF for upload
         run: |
-          python3 -c '
+          sudo python3 -c '
           import json, os, glob
 
           for path in glob.glob("sarif_results/*.sarif"):
@@ -72,6 +72,9 @@ jobs:
               except (json.JSONDecodeError, KeyError):
                   print(f"Warning: Could not process {path}")
           '
+
+      - name: Fix file permissions
+        run: sudo chown -R $(id -u):$(id -g) sarif_results/
 
       - name: Upload SARIF results
         env:
