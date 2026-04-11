@@ -410,7 +410,7 @@ export function ReposTab({ embeddingModel, embedCode }: ReposTabProps) {
                                             {repo.name}
                                             <span className={`text-[10px] font-bold px-2 py-0.5 border uppercase tracking-wide inline-flex items-center gap-1 ${getStatusColor(repo.status)}`}>
                                                 {(isIndexing || isStopping) && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
-                                                {repo.status}
+                                                {!embedCode && repo.status === 'pending' ? 'not indexed' : repo.status}
                                             </span>
                                         </h4>
                                         <p className="text-xs text-zinc-500 font-mono truncate max-w-lg mt-1">{repo.path}</p>
