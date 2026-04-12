@@ -407,58 +407,6 @@ npm run dev
 
 Open `http://localhost:<SYNAPSE_FRONTEND_PORT>` (default: `http://localhost:3000`)
 
-### Prerequisites
-
-- **Python 3.11+**
-- **Node.js 18+**
-- **Ollama** (optional, for local models): [ollama.com](https://ollama.com)
-  ```bash
-  ollama pull mistral-nemo   # or any model you prefer
-  ```
-- **Docker** (optional, for sandbox code execution and Docker deployment)
-
----
-
-## Architecture
-
-```
-frontend/                    Next.js 14 — chat UI, agent builder, orchestration canvas
-  src/components/
-    settings/
-      McpServersTab.tsx      MCP server management UI (Local/Remote tabs, OAuth + PAT)
-backend/
-  core/
-    server.py                FastAPI app — MCP session lifecycle, startup
-    react_engine.py          ReAct agent loop — reasoning + tool execution
-    tools.py                 Tool aggregation (MCP + virtual + custom)
-    vault.py                 Persistent file storage
-    config.py                Settings loader (SYNAPSE_DATA_DIR)
-    mcp_client.py            External MCP server manager (stdio + remote/OAuth)
-    routes/                  API route handlers
-    orchestration/
-      engine.py              DAG-based workflow executor
-      steps.py               Step executors: Agent, LLM, Tool, Evaluator, Parallel,
-                             Merge, Loop, Transform, Human, End
-      models_orchestration.py  Data models for all step types
-      state.py               Shared state + checkpointing
-      logger.py              Per-run audit logs
-  tools/                     Built-in MCP tool scripts (stdio processes)
-    sequential_thinking/     Default sequential-thinking MCP server
-    memory/                  Default knowledge-graph memory MCP server
-  services/                  Business logic (code indexer, memory store)
-  data/                      User data — gitignored
-    user_agents.json         Agent configurations
-    orchestrations.json      Orchestration definitions
-    mcp_servers.json         Remote MCP server configs
-    vault/                   Agent file storage
-```
-
-**Frontend ↔ Backend:** Next.js proxies `/api/*` and `/auth/*` to the backend via `next.config.ts` rewrites. Server-side routes use `BACKEND_URL` env var.
-
-**MCP Transport:** Local servers use stdio transport. Remote servers use Streamable HTTP (SSE) with OAuth 2.0 PKCE or Bearer token auth. Synapse manages token refresh and session lifecycle automatically.
-
-**Default MCP Servers:** Sequential Thinking and Memory servers start automatically with Synapse — no configuration required. They give every agent structured reasoning chains and persistent cross-session memory out of the box.
-
 ---
 
 ## Upcoming Features (Roadmap)
