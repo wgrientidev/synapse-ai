@@ -67,8 +67,7 @@ Most AI agent frameworks give you a loop and a few toy tools. Synapse gives you 
 
 ## Synapse UI
 
-https://github.com/user-attachments/assets/78c526d9-c75b-41fa-9353-589d3207e7db
-
+https://github.com/user-attachments/assets/7a5ab42c-5fae-4f13-876c-13aa9b5a0366
 
 ## Synapse Orchestration Demo
 
