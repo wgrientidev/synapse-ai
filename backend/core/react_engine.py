@@ -36,8 +36,22 @@ def parse_tool_call(llm_output: str) -> tuple[dict | None, str | None]:
     the actual tool-call JSON (common in orchestration agents that plan before
     acting).  JSON objects that appear at or near the start of the output are
     tried first so the fast path is preserved for well-behaved models.
+
+    Also handles <tool_call>...</tool_call> XML wrappers emitted by CLI providers
+    (claude, gemini, codex) that are instructed to use this format via system prompt.
     """
     cleaned = llm_output.replace("```json", "").replace("```", "").strip()
+
+    # ── Fast path: <tool_call> XML wrapper (CLI providers) ──────────────────────
+    import re as _re
+    _tc_match = _re.search(r"<tool_call>(.*?)</tool_call>", cleaned, _re.DOTALL)
+    if _tc_match:
+        try:
+            obj = json.loads(_tc_match.group(1).strip())
+            if isinstance(obj, dict) and ("tool" in obj or "name" in obj):
+                return obj, None
+        except json.JSONDecodeError:
+            pass  # Fall through to bare-JSON detection
 
     if "{" not in cleaned:
         return None, None
@@ -73,6 +87,7 @@ def parse_tool_call(llm_output: str) -> tuple[dict | None, str | None]:
         return None, "Output starts with '{' but is not a valid tool call JSON"
 
     return None, None
+
 
 
 

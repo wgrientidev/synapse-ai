@@ -1,11 +1,14 @@
 """
-LLM provider API callers (OpenAI, Anthropic, Gemini, Bedrock, Ollama, Grok, DeepSeek).
+LLM provider API callers (OpenAI, Anthropic, Gemini, Bedrock, Ollama, Grok, DeepSeek, CLI).
 Extracted from server.py to eliminate duplication between chat() and chat_stream().
 
 All cloud providers follow the same failsafe pattern:
   - 5 attempts max
   - Exponential backoff: [5, 10, 20, 40, 80] seconds
   - Raises LLMError on final failure (never returns error strings silently)
+
+CLI providers (cli.claude, cli.gemini, cli.codex) use locally authenticated CLI sessions.
+No API key needed — tool calling is emulated via system prompt injection + <tool_call> parsing.
 """
 import os
 import json
@@ -88,11 +91,14 @@ def detect_mode_from_model(model_name: str) -> str:
     """Detect the provider mode from a model name prefix.
 
     Returns 'cloud' for OpenAI/Anthropic/Gemini/Grok/DeepSeek models,
-    'bedrock' for Bedrock, and 'local' for anything else (assumed to be Ollama).
+    'bedrock' for Bedrock, 'cli' for local CLI session models (cli.*),
+    and 'local' for anything else (assumed to be Ollama).
     """
     if not model_name:
         return "local"
     m = model_name.lower()
+    if m.startswith("cli."):
+        return "cli"
     if m.startswith("gpt"):
         return "cloud"
     if m.startswith("claude"):
@@ -113,6 +119,15 @@ def detect_provider_from_model(model_name: str) -> str:
     if not model_name:
         return "ollama"
     m = model_name.lower()
+    # CLI session providers
+    if m.startswith("cli.claude"):
+        return "anthropic_cli"
+    if m.startswith("cli.gemini"):
+        return "gemini_cli"
+    if m.startswith("cli.codex"):
+        return "codex_cli"
+    if m.startswith("cli."):
+        return "cli"
     if m.startswith("gpt"):
         return "openai"
     if m.startswith("claude"):
@@ -201,6 +216,187 @@ def _make_aws_client(service_name: str, region: str, settings: dict):
 
     return boto3.client(**kwargs)
 
+
+# ─── CLI Session Providers ──────────────────────────────────────────────────────
+
+# Maps cli.* model names to their CLI binary + flags
+_CLI_COMMANDS: dict[str, list[str]] = {
+    "cli.claude": ["claude", "-p"],
+    "cli.gemini": ["gemini", "--prompt"],
+    "cli.codex":  ["codex"],
+}
+
+# Seconds to wait for a CLI process before giving up
+_CLI_TIMEOUT = 120.0
+
+
+def _build_cli_prompt(
+    sys_prompt: str,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+) -> str:
+    """Build a single flat text prompt for CLI providers.
+
+    Combines system prompt (with optional tool schema injection) + conversation
+    transcript into one string that can be piped into a CLI via stdin.
+    """
+    parts: list[str] = []
+
+    # 1. System prompt
+    if sys_prompt and sys_prompt.strip():
+        parts.append(sys_prompt.strip())
+
+    # 2. Tool schema injection — emulates native tool calling
+    if tools:
+        import json as _json
+        tool_block = (
+            "\n\n===== AVAILABLE TOOLS =====\n"
+            "You have access to the following tools. "
+            "To call a tool, output EXACTLY the following XML block (nothing before or after it on that response):\n"
+            "<tool_call>{\"tool\": \"<tool_name>\", \"arguments\": {<args>}}</tool_call>\n\n"
+            "Tools:\n"
+        )
+        for t in tools:
+            func = t.get("function", {})
+            name = func.get("name", "")
+            if not name:
+                continue
+            desc = func.get("description", "")
+            params = func.get("parameters", {})
+            tool_block += f"- {name}: {desc}\n"
+            if params.get("properties"):
+                tool_block += f"  Parameters: {_json.dumps(params['properties'])}\n"
+        tool_block += "===========================\n"
+        parts.append(tool_block)
+
+    # 3. Conversation history transcript
+    transcript = _messages_to_transcript(messages)
+    if transcript:
+        parts.append(transcript)
+
+    return "\n\n".join(parts)
+
+
+async def call_cli_provider(
+    cli_model: str,
+    full_prompt: str,
+    timeout: float = _CLI_TIMEOUT,
+) -> tuple[str, int, int]:
+    """Spawn a local CLI binary, feed it the full context, and return the response.
+
+    Args:
+        cli_model: One of 'cli.claude', 'cli.gemini', 'cli.codex'
+        full_prompt: Complete flat-text prompt (system + tools + transcript)
+        timeout: Seconds before we kill the process and raise LLMError
+
+    Returns:
+        (response_text, estimated_input_tokens, estimated_output_tokens)
+
+    Raises:
+        LLMError: on timeout, auth failure, binary not found, or empty output
+    """
+    import re
+    from core import usage_tracker
+
+    ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    AUTH_PATTERNS = ["login", "authenticate", "auth", "expired", "sign in", "api key", "unauthorized"]
+
+    parts = cli_model.lower().split(".")
+    if len(parts) >= 2:
+        base_cli = f"{parts[0]}.{parts[1]}"
+    else:
+        base_cli = cli_model.lower()
+
+    base_cmd = _CLI_COMMANDS.get(base_cli)
+    if not base_cmd:
+        raise LLMError(f"Unknown CLI base '{base_cli}'. Supported: {list(_CLI_COMMANDS.keys())}")
+
+    cmd = base_cmd.copy()
+
+    # ── Dynamic Model & Options Parsing ──
+    if len(parts) > 2:
+        variant = parts[2]
+        if base_cli == "cli.claude":
+            # Extract base model by removing any thinking suffixes
+            clean_variant = variant.replace('-thinking', '').replace('-max', '').replace('-high', '')
+            cmd.extend(["--model", clean_variant])
+            
+            # Thinking / Effort overrides
+            if "-thinking" in variant or "-max" in variant:
+                cmd.extend(["--effort", "max"])
+            elif "-high" in variant:
+                cmd.extend(["--effort", "high"])
+
+        elif base_cli == "cli.gemini":
+            if "pro" in variant:
+                cmd.extend(["--model", "gemini-1.5-pro"])
+            elif "flash" in variant:
+                cmd.extend(["--model", "gemini-2.0-flash"])
+
+    print(f"DEBUG: 🖥️  CLI provider '{cli_model}' — spawning subprocess: {' '.join(cmd)}", flush=True)
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(
+                process.communicate(input=full_prompt.encode("utf-8")),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+            raise LLMError(
+                f"CLI provider '{cli_model}' timed out after {timeout}s. "
+                "Is the CLI authenticated and responsive?"
+            )
+
+        stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
+        if stderr_text:
+            lower_err = stderr_text.lower()
+            if any(p in lower_err for p in AUTH_PATTERNS):
+                raise LLMError(
+                    f"CLI provider '{cli_model}' authentication failure detected.\n"
+                    f"Run the CLI in your terminal to re-authenticate.\n"
+                    f"Details: {stderr_text[:400]}"
+                )
+            print(f"DEBUG: 🖥️  CLI stderr: {stderr_text[:300]}", flush=True)
+
+        raw = stdout_b.decode("utf-8", errors="replace")
+        clean = ANSI_ESCAPE.sub("", raw).strip()
+
+        if not clean:
+            raise LLMError(
+                f"CLI provider '{cli_model}' returned empty output. "
+                f"Return code: {process.returncode}. "
+                f"stderr: {stderr_text[:200]}"
+            )
+
+        print(f"DEBUG: ✅ CLI '{cli_model}' response ({len(clean)} chars)", flush=True)
+
+        input_est = usage_tracker.estimate_tokens_from_text(full_prompt)
+        output_est = usage_tracker.estimate_tokens_from_text(clean)
+        return clean, input_est, output_est
+
+    except LLMError:
+        raise
+    except FileNotFoundError:
+        raise LLMError(
+            f"CLI binary for '{cli_model}' not found in PATH. "
+            f"Install and authenticate the CLI first: {cmd[0]}"
+        )
+    except Exception as e:
+        raise LLMError(f"CLI provider '{cli_model}' unexpected error: {e}")
+
+
+# ────────────────────────────────────────────────────────────────────────────────
 
 async def call_openai(model, messages, api_key, tools=None, images=None):
     """Call OpenAI with 5-attempt exponential backoff retry loop.
@@ -1154,6 +1350,30 @@ async def generate_response(
             raise
         except Exception as e:
             return f"Cloud API Error: {str(e)}"
+
+    elif mode == "cli":
+        # CLI session providers: build a flat prompt and spawn the local binary.
+        # No API key required — uses the user's existing CLI authentication.
+        try:
+            messages_for_cli = []
+            if history_messages:
+                messages_for_cli.extend(history_messages)
+            messages_for_cli.append({"role": "user", "content": prompt_msg})
+
+            cli_full_prompt = _build_cli_prompt(
+                sys_prompt=augmented_system,
+                messages=messages_for_cli,
+                tools=tools,
+            )
+            result_text, input_tokens, output_tokens = await call_cli_provider(
+                cli_model=current_model,
+                full_prompt=cli_full_prompt,
+            )
+        except LLMError:
+            raise
+        except Exception as e:
+            return f"CLI Provider Error: {str(e)}"
+
     
     else:
         # Local Ollama
