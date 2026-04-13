@@ -369,6 +369,13 @@ The **Vault** is a persistent file directory (`data/vault/`) that acts as shared
 
 Switch providers per-agent or globally in **Settings → Model**.
 
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=naveenraj-17/synapse-ai&type=date&legend=top-left)](https://www.star-history.com/#naveenraj-17/synapse-ai&type=date&legend=top-left)
+
+---
+
 ### Environment Variables
 
 ```bash
