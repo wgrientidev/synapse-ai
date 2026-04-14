@@ -1108,6 +1108,18 @@ def _detect_codex_cli():
         return []
     return ["cli.codex"]
 
+def _detect_github_copilot_cli():
+    """Returns GitHub Copilot CLI model list if 'copilot' binary is found, else []."""
+    if not shutil.which("copilot"):
+        return []
+    try:
+        r = subprocess.run(["copilot", "--version"], capture_output=True, timeout=5)
+        if r.returncode != 0:
+            return []
+    except Exception:
+        return []
+    return ["cli.copilot", "cli.copilot.claude-sonnet-4-5", "cli.copilot.gpt-4o"]
+
 def _fetch_gemini_models(api_key):
     try:
         data = _fetch_json(

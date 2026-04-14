@@ -127,6 +127,8 @@ def detect_provider_from_model(model_name: str) -> str:
         return "gemini_cli"
     if m.startswith("cli.codex"):
         return "codex_cli"
+    if m.startswith("cli.copilot"):
+        return "github_copilot_cli"
     if m.startswith("cli."):
         return "cli"
     if m.startswith("gpt"):
@@ -222,9 +224,10 @@ def _make_aws_client(service_name: str, region: str, settings: dict):
 
 # Maps cli.* model names to their CLI binary + flags
 _CLI_COMMANDS: dict[str, list[str]] = {
-    "cli.claude": ["claude", "-p", "--verbose"],
-    "cli.gemini": ["gemini", "--prompt", ""],
-    "cli.codex":  ["codex", "exec", "--full-auto"],
+    "cli.claude":   ["claude", "-p", "--verbose", "--output-format", "json"],
+    "cli.gemini":   ["gemini", "--prompt", ""],
+    "cli.codex":    ["codex", "exec", "--full-auto"],
+    "cli.copilot":  ["copilot", "-p"],
 }
 
 # Seconds to wait for a CLI process before giving up
@@ -284,16 +287,18 @@ async def call_cli_provider(
     sys_prompt: str | None = None,
     messages: list[dict] | None = None,
     timeout: float = _CLI_TIMEOUT,
-) -> tuple[str, int, int]:
+    cli_session_id: str | None = None,
+) -> tuple[str, int, int, str | None]:
     """Spawn a local CLI binary, feed it the full context, and return the response.
 
     Args:
-        cli_model: One of 'cli.claude', 'cli.gemini', 'cli.codex'
+        cli_model: One of 'cli.claude', 'cli.gemini', 'cli.codex', 'cli.copilot'
         full_prompt: Complete flat-text prompt (system + tools + transcript)
         timeout: Seconds before we kill the process and raise LLMError
+        cli_session_id: Existing CLI session ID to resume (passed via --resume).
 
     Returns:
-        (response_text, estimated_input_tokens, estimated_output_tokens)
+        (response_text, estimated_input_tokens, estimated_output_tokens, new_session_id)
 
     Raises:
         LLMError: on timeout, auth failure, binary not found, or empty output
@@ -315,6 +320,11 @@ async def call_cli_provider(
         raise LLMError(f"Unknown CLI base '{base_cli}'. Supported: {list(_CLI_COMMANDS.keys())}")
 
     cmd = base_cmd.copy()
+
+    # ── Session Resume ──
+    # If a previous CLI session ID exists for this agent+session, continue it.
+    if cli_session_id:
+        cmd.extend(["--resume", cli_session_id])
 
     # ── Dynamic Model & Options Parsing ──
     if len(parts) > 2:
@@ -342,6 +352,10 @@ async def call_cli_provider(
             # Pass the variant directly as the model name (e.g. o3, o4-mini, gpt-4o)
             cmd.extend(["-m", variant])
 
+        elif base_cli == "cli.copilot":
+            # Pass the variant directly as the model name (e.g. claude-sonnet-4-5, gpt-4o)
+            cmd.extend(["--model", variant])
+
     # codex exec requires "-" as the positional PROMPT arg to signal stdin input.
     # Append it after all option flags are resolved so it stays last.
     if base_cli == "cli.codex":
@@ -363,46 +377,52 @@ async def call_cli_provider(
     os.makedirs(_tmp_dir, exist_ok=True)
 
     try:
-        if base_cli == "cli.claude" and sys_prompt:
-            # Write sys_prompt to a temp file and pass via --system-prompt-file.
-            temp_sys_prompt_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", prefix="claude_sys_prompt_", delete=False,
-                encoding="utf-8", dir=_tmp_dir
-            )
-            temp_sys_prompt_file.write(sys_prompt)
-            temp_sys_prompt_file.flush()
-            temp_sys_prompt_file.close()
-            cmd.extend(["--system-prompt-file", temp_sys_prompt_file.name])
-
-            # stdin carries only the content after the sys_prompt (tools + messages).
-            # full_prompt = sys_prompt.strip() + "\n\n" + rest, so strip the prefix.
-            prefix = sys_prompt.strip()
-            stdin_payload = full_prompt[len(prefix):].lstrip("\n") if full_prompt.startswith(prefix) else full_prompt
+        if base_cli == "cli.copilot":
+            # copilot -p takes the full prompt inline as a CLI argument; stdin is not used.
+            # System prompt is already embedded in full_prompt by _build_cli_prompt().
+            cmd.append(full_prompt)
+            stdin_source = asyncio.subprocess.DEVNULL
         else:
-            stdin_payload = full_prompt
+            if base_cli == "cli.claude" and sys_prompt:
+                # Write sys_prompt to a temp file and pass via --system-prompt-file.
+                temp_sys_prompt_file = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".txt", prefix="claude_sys_prompt_", delete=False,
+                    encoding="utf-8", dir=_tmp_dir
+                )
+                temp_sys_prompt_file.write(sys_prompt)
+                temp_sys_prompt_file.flush()
+                temp_sys_prompt_file.close()
+                cmd.extend(["--system-prompt-file", temp_sys_prompt_file.name])
 
-        # Write stdin payload to a temp file and feed it as stdin (like `< file`),
-        # avoiding large string pipes and keeping content out of the process list.
-        temp_input_file = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", prefix="claude_input_", delete=False,
-            encoding="utf-8", dir=_tmp_dir
-        )
-        temp_input_file.write(stdin_payload)
-        temp_input_file.flush()
-        temp_input_file.close()
+                # stdin carries only the content after the sys_prompt (tools + messages).
+                # full_prompt = sys_prompt.strip() + "\n\n" + rest, so strip the prefix.
+                prefix = sys_prompt.strip()
+                stdin_payload = full_prompt[len(prefix):].lstrip("\n") if full_prompt.startswith(prefix) else full_prompt
+            else:
+                stdin_payload = full_prompt
 
-        # codex exec: use -o to capture only the final agent message, avoiding TUI noise
-        if base_cli == "cli.codex":
-            temp_output_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", prefix="codex_output_", delete=False,
+            # Write stdin payload to a temp file and feed it as stdin (like `< file`),
+            # avoiding large string pipes and keeping content out of the process list.
+            temp_input_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", prefix="cli_input_", delete=False,
                 encoding="utf-8", dir=_tmp_dir
             )
-            temp_output_file.close()
-            cmd.extend(["-o", temp_output_file.name])
+            temp_input_file.write(stdin_payload)
+            temp_input_file.flush()
+            temp_input_file.close()
 
-        print(f"DEBUG: 🖥️  CLI provider '{cli_model}' — spawning subprocess: {' '.join(cmd)}", flush=True)
+            # codex exec: use -o to capture only the final agent message, avoiding TUI noise
+            if base_cli == "cli.codex":
+                temp_output_file = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".txt", prefix="codex_output_", delete=False,
+                    encoding="utf-8", dir=_tmp_dir
+                )
+                temp_output_file.close()
+                cmd.extend(["-o", temp_output_file.name])
 
-        stdin_source = open(temp_input_file.name, "rb") if temp_input_file else asyncio.subprocess.PIPE
+            stdin_source = open(temp_input_file.name, "rb")
+
+        print(f"DEBUG: 🖥️  CLI provider '{cli_model}' — spawning subprocess: {' '.join(str(a)[:80] for a in cmd)}", flush=True)
 
         process = await asyncio.create_subprocess_exec(
             executable,
@@ -455,11 +475,39 @@ async def call_cli_provider(
             raw = stdout_b.decode("utf-8", errors="replace")
         clean = ANSI_ESCAPE.sub("", raw).strip()
 
-        # claude CLI writes "Not logged in" to stdout (not stderr) — catch it here
+        # ── Session ID extraction & response unwrapping ──
+        new_session_id: str | None = None
+        if base_cli == "cli.claude":
+            # Claude CLI with --output-format json returns a structured object.
+            # Extract result text and session_id from it.
+            try:
+                import json as _json
+                obj = _json.loads(clean)
+                new_session_id = obj.get("session_id")
+                extracted = obj.get("result", "")
+                if isinstance(extracted, str) and extracted.strip():
+                    clean = extracted.strip()
+                # Propagate JSON-level auth errors before the generic check below
+                if obj.get("is_error") and any(p in str(obj).lower() for p in AUTH_PATTERNS):
+                    raise LLMError(
+                        f"CLI provider '{cli_model}' authentication failure.\n"
+                        f"Run 'claude' in your terminal to re-authenticate.\n"
+                        f"Details: {str(obj)[:300]}"
+                    )
+            except LLMError:
+                raise
+            except Exception:
+                pass  # not JSON or parse error — treat clean as plain text
+        else:
+            # Best-effort session ID extraction for gemini, codex, copilot
+            sid_match = re.search(r"session[_\-]?id[:\s]+([a-zA-Z0-9_\-]{8,})", clean, re.IGNORECASE)
+            new_session_id = sid_match.group(1) if sid_match else None
+
+        # Auth failure check (also catches plain-text "Not logged in" from claude)
         if any(p in clean.lower() for p in AUTH_PATTERNS):
             raise LLMError(
                 f"CLI provider '{cli_model}' is not authenticated.\n"
-                f"Run 'claude' in your terminal and complete the login flow, then retry.\n"
+                f"Run the CLI in your terminal and complete the login flow, then retry.\n"
                 f"Details: {clean[:300]}"
             )
 
@@ -474,7 +522,7 @@ async def call_cli_provider(
 
         input_est = usage_tracker.estimate_tokens_from_text(full_prompt)
         output_est = usage_tracker.estimate_tokens_from_text(clean)
-        return clean, input_est, output_est
+        return clean, input_est, output_est, new_session_id
 
     except LLMError:
         raise
@@ -1463,12 +1511,26 @@ async def generate_response(
                 messages=messages_for_cli,
                 tools=tools,
             )
-            result_text, input_tokens, output_tokens = await call_cli_provider(
+
+            # Load the existing CLI session ID for this agent+session (if any)
+            from core.session import get_cli_session_id, save_cli_session_id
+            _provider_key = detect_provider_from_model(current_model)
+            _existing_cli_sid = get_cli_session_id(
+                session_id or "default", agent_id, _provider_key
+            ) if session_id else None
+
+            result_text, input_tokens, output_tokens, new_cli_sid = await call_cli_provider(
                 cli_model=current_model,
                 full_prompt=cli_full_prompt,
                 sys_prompt=augmented_system,
-                messages=messages_for_cli
+                messages=messages_for_cli,
+                cli_session_id=_existing_cli_sid,
             )
+
+            # Persist the CLI session ID so the next turn resumes the same session
+            if new_cli_sid and session_id:
+                save_cli_session_id(session_id, agent_id, _provider_key, new_cli_sid)
+
         except LLMError:
             raise
         except Exception as e:

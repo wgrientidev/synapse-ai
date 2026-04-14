@@ -159,7 +159,13 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
         label: 'Codex (CLI)',
         icon: CliIcon,
         color: '#a78bfa',
-        description: 'Use the locally installed GitHub Copilot/Codex CLI. No API key needed — uses your existing terminal session.',
+        description: 'Use the locally installed OpenAI Codex CLI agent. No API key needed — uses your existing terminal session.',
+    },
+    github_copilot_cli: {
+        label: 'GitHub Copilot (CLI)',
+        icon: CliIcon,
+        color: '#8957e5',
+        description: 'Use the locally installed GitHub Copilot CLI. No API key needed — uses your existing GitHub session.',
     },
 };
 
@@ -396,7 +402,12 @@ export const ModelsTab = ({
                                                         </a>
                                                     )}
                                                     {key === 'codex_cli' && (
-                                                        <a href="https://docs.github.com/en/copilot/github-copilot-in-the-cli" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
+                                                        <a href="https://github.com/openai/codex" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
+                                                            <ExternalLink className="h-2.5 w-2.5" /> Install OpenAI Codex CLI →
+                                                        </a>
+                                                    )}
+                                                    {key === 'github_copilot_cli' && (
+                                                        <a href="https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
                                                             <ExternalLink className="h-2.5 w-2.5" /> Install GitHub Copilot CLI →
                                                         </a>
                                                     )}

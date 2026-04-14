@@ -263,6 +263,25 @@ async def get_models():
         models = ["cli.codex"] if shutil.which("codex") else []
         return bool(models), models, []
 
+    async def fetch_github_copilot_cli() -> tuple[bool, list[str], list[str]]:
+        import shutil
+        if not shutil.which("copilot"):
+            return False, [], []
+        # Verify it's the GitHub Copilot CLI binary
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "copilot", "--version",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            if proc.returncode != 0:
+                return False, [], []
+        except Exception:
+            return False, [], []
+        models = ["cli.copilot", "cli.copilot.claude-sonnet-4-5", "cli.copilot.gpt-4o"]
+        return True, models, []
+
     # Run all fetches concurrently; return_exceptions=True ensures one provider failure
     # doesn't cancel the others.
     _PROVIDER_FALLBACKS = [
@@ -276,13 +295,15 @@ async def get_models():
         (False, [], []),                                                                 # anthropic_cli
         (False, [], []),                                                                 # gemini_cli
         (False, [], []),                                                                 # codex_cli
+        (False, [], []),                                                                 # github_copilot_cli
     ]
-    _PROVIDER_NAMES = ["ollama", "openai", "anthropic", "gemini", "grok", "deepseek", "bedrock", "anthropic_cli", "gemini_cli", "codex_cli"]
+    _PROVIDER_NAMES = ["ollama", "openai", "anthropic", "gemini", "grok", "deepseek", "bedrock", "anthropic_cli", "gemini_cli", "codex_cli", "github_copilot_cli"]
 
     raw = await asyncio.gather(
         fetch_ollama(), fetch_openai(), fetch_anthropic(),
         fetch_gemini(), fetch_grok(), fetch_deepseek(), fetch_bedrock(),
         fetch_claude_cli(), fetch_gemini_cli(), fetch_codex_cli(),
+        fetch_github_copilot_cli(),
         return_exceptions=True,
     )
 
@@ -304,6 +325,7 @@ async def get_models():
     c_claude_avail, c_claude_chat, _ = results[7]
     c_gemini_avail, c_gemini_chat, _ = results[8]
     c_codex_avail, c_codex_chat, _ = results[9]
+    c_copilot_avail, c_copilot_chat, _ = results[10]
 
     # --- Build provider map ---
     providers = {
@@ -317,16 +339,17 @@ async def get_models():
         "anthropic_cli": {"available": c_claude_avail, "models": c_claude_chat, "embedding_models": []},
         "gemini_cli": {"available": c_gemini_avail, "models": c_gemini_chat, "embedding_models": []},
         "codex_cli": {"available": c_codex_avail, "models": c_codex_chat, "embedding_models": []},
+        "github_copilot_cli": {"available": c_copilot_avail, "models": c_copilot_chat, "embedding_models": []},
     }
 
     # --- Flat list of all available models ---
     all_available = []
-    for name, info in providers.items():
+    for _, info in providers.items():
         if info["available"]:
             all_available.extend(info["models"])
 
     # --- Backward compat ---
-    cloud_models = gemini_chat + anthropic_chat + openai_chat + grok_chat + deepseek_chat + BEDROCK_FALLBACK + c_claude_chat + c_gemini_chat + c_codex_chat
+    cloud_models = gemini_chat + anthropic_chat + openai_chat + grok_chat + deepseek_chat + BEDROCK_FALLBACK + c_claude_chat + c_gemini_chat + c_codex_chat + c_copilot_chat
 
     return {
         "providers": providers,
