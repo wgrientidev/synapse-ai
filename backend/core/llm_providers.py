@@ -152,6 +152,29 @@ def detect_provider_from_model(model_name: str) -> str:
 
 
 
+def _normalize_bedrock_api_key(settings: dict) -> str:
+    """Extract and normalize the Bedrock API key from settings.
+
+    Strips surrounding quotes and common header prefixes (Authorization: Bearer ...)
+    that users often paste. Both ABSK... and bedrock-api-key... formats are returned
+    as-is after stripping prefixes.
+    """
+    api_key = (settings.get("bedrock_api_key") or "").strip()
+    if not api_key:
+        return ""
+    if (api_key.startswith('"') and api_key.endswith('"')) or (
+        api_key.startswith("'") and api_key.endswith("'")
+    ):
+        api_key = api_key[1:-1].strip()
+    lower = api_key.lower()
+    if lower.startswith("authorization:"):
+        api_key = api_key.split(":", 1)[1].strip()
+        lower = api_key.lower()
+    if lower.startswith("bearer "):
+        api_key = api_key.split(" ", 1)[1].strip()
+    return api_key
+
+
 def _make_aws_client(service_name: str, region: str, settings: dict):
     """Create a boto3 client.
 
@@ -160,21 +183,7 @@ def _make_aws_client(service_name: str, region: str, settings: dict):
     """
     # Amazon Bedrock API keys can be provided as a bearer token via this env var.
     # See: https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-use.html
-    bedrock_api_key = (settings.get("bedrock_api_key") or "").strip()
-    # Users often paste a full header value. Normalize to the raw ABSK... token.
-    if bedrock_api_key:
-        # Strip surrounding quotes
-        if (bedrock_api_key.startswith('"') and bedrock_api_key.endswith('"')) or (
-            bedrock_api_key.startswith("'") and bedrock_api_key.endswith("'")
-        ):
-            bedrock_api_key = bedrock_api_key[1:-1].strip()
-
-        lower = bedrock_api_key.lower()
-        if lower.startswith("authorization:"):
-            bedrock_api_key = bedrock_api_key.split(":", 1)[1].strip()
-            lower = bedrock_api_key.lower()
-        if lower.startswith("bearer "):
-            bedrock_api_key = bedrock_api_key.split(" ", 1)[1].strip()
+    bedrock_api_key = _normalize_bedrock_api_key(settings)
 
     # If a Bedrock API key is provided, prefer it and avoid mixing auth mechanisms.
     if bedrock_api_key:
@@ -1234,6 +1243,70 @@ async def call_deepseek(model, messages, system, api_key, tools=None, images=Non
     raise LLMError(error_msg)
 
 
+async def _bedrock_converse_direct(
+    region: str, api_key: str, model_id: str,
+    messages: list, system_blocks: list, max_tokens: int,
+) -> dict:
+    """Direct HTTPS POST to Bedrock Converse endpoint using bearer token auth.
+
+    Used instead of boto3 when bedrock_api_key is set, because botocore mangles
+    bedrock-api-key format keys when using AWS_BEARER_TOKEN_BEDROCK env var.
+    Returns the same dict structure as boto3's bedrock.converse().
+    """
+    import urllib.request as _ureq
+    import urllib.error as _uerr
+    import urllib.parse as _uparse
+
+    # URL-encode the model ID (colons in model IDs like "v1:0" must be percent-encoded)
+    encoded_model_id = _uparse.quote(model_id, safe="")
+    url = f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_model_id}/converse"
+
+    # boto3 passes image bytes as raw bytes objects, but json.dumps cannot serialize them.
+    # Convert any image bytes blocks to base64 strings for JSON serialization.
+    def _prepare_messages(msgs: list) -> list:
+        result = []
+        for m in msgs:
+            blocks = []
+            for b in m.get("content", []):
+                if "image" in b:
+                    src = b["image"].get("source", {})
+                    if isinstance(src.get("bytes"), bytes):
+                        b = {**b, "image": {**b["image"], "source": {"bytes": base64.b64encode(src["bytes"]).decode()}}}
+                blocks.append(b)
+            result.append({"role": m["role"], "content": blocks})
+        return result
+
+    body = json.dumps({
+        "messages": _prepare_messages(messages),
+        "system": system_blocks,
+        "inferenceConfig": {"maxTokens": max_tokens},
+    }).encode("utf-8")
+
+    req = _ureq.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    def _run():
+        try:
+            with _ureq.urlopen(req, timeout=300) as resp:
+                return json.loads(resp.read())
+        except _uerr.HTTPError as e:
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            raise RuntimeError(f"HTTP {e.code}: {error_body}") from e
+
+    return await asyncio.to_thread(_run)
+
+
 async def call_bedrock(model_id, messages, system, region, settings, images=None):
     """Call AWS Bedrock with 5-attempt exponential backoff retry loop.
 
@@ -1256,6 +1329,9 @@ async def call_bedrock(model_id, messages, system, region, settings, images=None
         invocation_model_id = inference_profile
 
     bedrock = _make_aws_client("bedrock-runtime", region, settings)
+    bedrock_api_key = _normalize_bedrock_api_key(settings)
+    effective_region = (region or settings.get("aws_region") or "us-east-1").strip()
+    max_tokens = int(settings.get("bedrock_max_tokens") or 4096)
 
     # Normalize messages to Bedrock Converse content-block format
     normalized_messages = []
@@ -1305,7 +1381,7 @@ async def call_bedrock(model_id, messages, system, region, settings, images=None
                 modelId=invocation_model_id,
                 messages=normalized_messages,
                 system=system_blocks,
-                inferenceConfig={"maxTokens": 4096},
+                inferenceConfig={"maxTokens": max_tokens},
             )
         return await asyncio.to_thread(_run)
 
@@ -1318,7 +1394,7 @@ async def call_bedrock(model_id, messages, system, region, settings, images=None
             })
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "system": str(system or ""),
             "messages": anthropic_messages,
         }
@@ -1336,9 +1412,16 @@ async def call_bedrock(model_id, messages, system, region, settings, images=None
         backoff = BACKOFF_SCHEDULE[attempt - 1]
         try:
             print(f"DEBUG: 🔄 Bedrock call start (attempt {attempt}/{MAX_RETRIES})", flush=True)
-            if hasattr(bedrock, "converse"):
+            if hasattr(bedrock, "converse") or bedrock_api_key:
                 try:
-                    resp = await _converse_call()
+                    if bedrock_api_key:
+                        # Bypass boto3 — botocore mangles bedrock-api-key format keys
+                        resp = await _bedrock_converse_direct(
+                            effective_region, bedrock_api_key, invocation_model_id,
+                            normalized_messages, system_blocks, max_tokens,
+                        )
+                    else:
+                        resp = await _converse_call()
                     msg = (((resp or {}).get("output") or {}).get("message") or {})
                     content = msg.get("content") or []
                     if content and isinstance(content, list) and isinstance(content[0], dict):
@@ -1347,16 +1430,14 @@ async def call_bedrock(model_id, messages, system, region, settings, images=None
                     return ""
                 except Exception as converse_err:
                     msg_str = str(converse_err)
-                    if "on-demand throughput isn't supported" in msg_str:
+                    if "on-demand throughput" in msg_str:
                         raise LLMError(
                             "Bedrock model requires an inference profile (no on-demand throughput). "
                             "Set Bedrock Inference Profile in settings, or pick a different model."
                         )
-                    # AccessDeniedException on Converse = auth failure.
-                    # InvokeModel requires SigV4 and does NOT support bearer token auth,
-                    # so falling through would just produce a different auth error.
-                    # Raise immediately with a clear message.
-                    if "AccessDeniedException" in msg_str:
+                    # Auth failures: raise immediately — InvokeModel also requires SigV4
+                    # and won't help when bearer token auth fails.
+                    if "AccessDeniedException" in msg_str or "HTTP 403" in msg_str or "Invalid API Key" in msg_str:
                         raise LLMError(
                             f"Bedrock authentication failed: {converse_err}. "
                             "Check your API key or IAM credentials in Settings."
