@@ -1108,6 +1108,90 @@ def _detect_codex_cli():
         return []
     return ["cli.codex"]
 
+_COPILOT_FALLBACK_MODELS = [
+    "cli.copilot",
+    "cli.copilot.claude-sonnet-4-5",
+    "cli.copilot.claude-opus-4-5",
+    "cli.copilot.claude-haiku-4-5",
+    "cli.copilot.gpt-4o",
+    "cli.copilot.gpt-4.1",
+    "cli.copilot.o3",
+    "cli.copilot.o4-mini",
+]
+
+def _get_github_token_sync():
+    """Discover a GitHub token from env vars, gh CLI, or copilot config files (cross-platform)."""
+    import os as _os, json as _json, platform
+    from pathlib import Path
+    token = (_os.getenv("COPILOT_GITHUB_TOKEN")
+             or _os.getenv("GH_TOKEN")
+             or _os.getenv("GITHUB_TOKEN"))
+    if token:
+        return token
+    if shutil.which("gh"):
+        try:
+            r = subprocess.run(["gh", "auth", "token"], capture_output=True, timeout=5)
+            if r.returncode == 0 and (t := r.stdout.decode().strip()):
+                return t
+        except Exception:
+            pass
+    system = platform.system()
+    if system == "Windows":
+        config_dirs = [Path(_os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming")) / "github-copilot"]
+    elif system == "Darwin":
+        config_dirs = [
+            Path.home() / "Library" / "Application Support" / "github-copilot",
+            Path.home() / ".config" / "github-copilot",
+        ]
+    else:
+        config_dirs = [
+            Path(_os.getenv("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "github-copilot",
+        ]
+    for config_dir in config_dirs:
+        p = config_dir / "hosts.json"
+        if p.exists():
+            try:
+                data = _json.loads(p.read_text())
+                t = (data.get("github.com", {}).get("oauth_token")
+                     or data.get("github.com", {}).get("token"))
+                if t:
+                    return t
+            except Exception:
+                pass
+    p = Path.home() / ".copilot" / "config.json"
+    if p.exists():
+        try:
+            data = _json.loads(p.read_text())
+            if t := (data.get("oauth_token") or data.get("token")):
+                return t
+        except Exception:
+            pass
+    return None
+
+
+def _fetch_copilot_models_sync():
+    """Fetch live model list from GitHub Models catalog API; falls back to hardcoded list."""
+    import urllib.request, json as _json
+    token = _get_github_token_sync()
+    if not token:
+        return _COPILOT_FALLBACK_MODELS
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/catalog/models",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read())
+        names = [m["name"] for m in data if isinstance(m, dict) and m.get("name")]
+        return (["cli.copilot"] + [f"cli.copilot.{n}" for n in names]) if names else _COPILOT_FALLBACK_MODELS
+    except Exception:
+        return _COPILOT_FALLBACK_MODELS
+
+
 def _detect_github_copilot_cli():
     """Returns GitHub Copilot CLI model list if 'copilot' binary is found, else []."""
     if not shutil.which("copilot"):
@@ -1118,7 +1202,7 @@ def _detect_github_copilot_cli():
             return []
     except Exception:
         return []
-    return ["cli.copilot", "cli.copilot.claude-sonnet-4-5", "cli.copilot.gpt-4o"]
+    return _fetch_copilot_models_sync()
 
 def _fetch_gemini_models(api_key):
     try:

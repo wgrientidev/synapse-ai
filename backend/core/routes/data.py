@@ -54,6 +54,96 @@ async def list_datasets():
 
 # --- Models ---
 
+_COPILOT_FALLBACK_MODELS = [
+    "cli.copilot",
+    "cli.copilot.claude-sonnet-4-5",
+    "cli.copilot.claude-opus-4-5",
+    "cli.copilot.claude-haiku-4-5",
+    "cli.copilot.gpt-4o",
+    "cli.copilot.gpt-4.1",
+    "cli.copilot.o3",
+    "cli.copilot.o4-mini",
+]
+
+async def _get_github_token() -> "str | None":
+    """Discover a GitHub token from env vars, gh CLI, or copilot config files (cross-platform)."""
+    import shutil, os as _os, json as _json, platform
+    token = (_os.getenv("COPILOT_GITHUB_TOKEN")
+             or _os.getenv("GH_TOKEN")
+             or _os.getenv("GITHUB_TOKEN"))
+    if token:
+        return token
+    if shutil.which("gh"):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh", "auth", "token",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            if proc.returncode == 0 and (t := stdout.decode().strip()):
+                return t
+        except Exception:
+            pass
+    # Config file paths differ by OS
+    system = platform.system()
+    if system == "Windows":
+        config_dirs = [Path(_os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming")) / "github-copilot"]
+    elif system == "Darwin":
+        config_dirs = [
+            Path.home() / "Library" / "Application Support" / "github-copilot",
+            Path.home() / ".config" / "github-copilot",
+        ]
+    else:  # Linux and others
+        config_dirs = [
+            Path(_os.getenv("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "github-copilot",
+        ]
+    for config_dir in config_dirs:
+        hosts_path = config_dir / "hosts.json"
+        if hosts_path.exists():
+            try:
+                data = _json.loads(hosts_path.read_text())
+                t = (data.get("github.com", {}).get("oauth_token")
+                     or data.get("github.com", {}).get("token"))
+                if t:
+                    return t
+            except Exception:
+                pass
+    # Older plaintext fallback (~/.copilot/config.json)
+    config_path = Path.home() / ".copilot" / "config.json"
+    if config_path.exists():
+        try:
+            data = _json.loads(config_path.read_text())
+            if t := (data.get("oauth_token") or data.get("token")):
+                return t
+        except Exception:
+            pass
+    return None
+
+
+async def _fetch_copilot_models() -> "list[str]":
+    """Fetch live model list from GitHub Models catalog API; falls back to hardcoded list."""
+    token = await _get_github_token()
+    if not token:
+        return _COPILOT_FALLBACK_MODELS
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                "https://api.github.com/catalog/models",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+        if resp.status_code != 200:
+            return _COPILOT_FALLBACK_MODELS
+        data = resp.json()
+        names = [m["name"] for m in data if isinstance(m, dict) and m.get("name")]
+        return (["cli.copilot"] + [f"cli.copilot.{n}" for n in names]) if names else _COPILOT_FALLBACK_MODELS
+    except Exception:
+        return _COPILOT_FALLBACK_MODELS
+
+
 @router.get("/api/models")
 async def get_models():
     """Fetches available models dynamically from each provider's API."""
@@ -279,7 +369,7 @@ async def get_models():
                 return False, [], []
         except Exception:
             return False, [], []
-        models = ["cli.copilot", "cli.copilot.claude-sonnet-4-5", "cli.copilot.gpt-4o"]
+        models = await _fetch_copilot_models()
         return True, models, []
 
     # Run all fetches concurrently; return_exceptions=True ensures one provider failure
