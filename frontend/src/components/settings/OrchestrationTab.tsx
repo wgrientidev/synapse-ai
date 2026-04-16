@@ -2,7 +2,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Save, Play, Trash, Square, Loader2, Copy, Radio, Bot, Scale, GitBranch, GitMerge, RefreshCw, User, Code, Zap, Wrench, ExternalLink, X } from 'lucide-react';
+import { Plus, Save, Play, Trash, Square, Loader2, Copy, Radio, Bot, Scale, GitBranch, GitMerge, RefreshCw, User, Code, Zap, Wrench, ExternalLink, X, Sparkles } from 'lucide-react';
+import { BuilderPanel } from '../orchestration/BuilderPanel';
 import { STEP_TYPE_META } from '@/types/orchestration';
 import { ReactFlowProvider } from '@xyflow/react';
 import { WorkflowCanvas } from '../orchestration/WorkflowCanvas';
@@ -85,6 +86,7 @@ export function OrchestrationTab() {
     const pendingStepResultRef = useRef<Map<string, { step_name: string; step_type: 'agent' | 'llm'; content: string }>>(new Map());
     const [responseModal, setResponseModal] = useState<{ step_name: string; content: string } | null>(null);
     const [confirmDeleteOrchId, setConfirmDeleteOrchId] = useState<string | null>(null);
+    const [builderOpen, setBuilderOpen] = useState(false);
 
     // --- Active runs (for reconnect banner) ---
     const [activeRuns, setActiveRuns] = useState<Array<{
@@ -625,12 +627,18 @@ export function OrchestrationTab() {
     };
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full relative">
             {toast && <ToastNotification show={toast.show} message={toast.message} type={toast.type} />}
             {/* Header */}
             <div className="px-6 py-4 border-b border-zinc-800 shrink-0 pr-14">
                 <h1 className="text-2xl font-bold text-zinc-100">Orchestrations</h1>
                 <p className="text-zinc-500 text-xs mt-0.5">Design multi-agent workflows with visual canvas</p>
+                <button
+                    onClick={() => { createNew(); setBuilderOpen(true); }}
+                    className="absolute top-4 right-14 flex items-center gap-1.5 px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+                >
+                    <Sparkles size={13} /> Build with AI
+                </button>
             </div>
 
             {/* Toolbar: orchestration picker + actions */}
@@ -840,6 +848,32 @@ export function OrchestrationTab() {
                     setConfirmDeleteOrchId(null);
                 }}
                 onClose={() => setConfirmDeleteOrchId(null)}
+            />
+
+            <BuilderPanel
+                isOpen={builderOpen}
+                onClose={() => setBuilderOpen(false)}
+                agents={agents}
+                availableModels={availableModels}
+                currentOrchestrationId={selectedOrchId}
+                onOrchestrationSaved={(orch) => {
+                    setOrchestrations((prev) => {
+                        const idx = prev.findIndex((o) => o.id === orch.id);
+                        return idx >= 0
+                            ? prev.map((o) => (o.id === orch.id ? orch : o))
+                            : [...prev, orch];
+                    });
+                    setDraft(orch);
+                    setSelectedOrchId(orch.id);
+                }}
+                onAgentSaved={(agent) => {
+                    setAgents((prev) => {
+                        const idx = prev.findIndex((a) => a.id === agent.id);
+                        return idx >= 0
+                            ? prev.map((a) => (a.id === agent.id ? agent : a))
+                            : [...prev, agent];
+                    });
+                }}
             />
         </div>
     );
