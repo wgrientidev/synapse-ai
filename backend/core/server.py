@@ -486,6 +486,17 @@ async def lifespan(app: FastAPI):
         import core.server as _self_module
         app.state.server_module = _self_module
 
+        # --- Seed the native builder orchestration (idempotent) ---
+        try:
+            from core.native_builder import seed_native_builder
+            seed_result = seed_native_builder()
+            if (seed_result["agents_added"] or seed_result["agents_updated"]
+                    or seed_result.get("agents_removed")
+                    or seed_result["orchestration"] != "unchanged"):
+                print(f"Native builder seeded: {seed_result}")
+        except Exception as e:
+            print(f"Warning: Failed to seed native builder: {e}")
+
         # --- Initialize Messaging Manager (if enabled) ---
         if _settings.get("messaging_enabled", False):
             try:

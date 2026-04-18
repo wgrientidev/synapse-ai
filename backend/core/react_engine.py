@@ -31,14 +31,21 @@ MAX_TURNS = 30
 def parse_tool_call(llm_output: str) -> tuple[dict | None, str | None]:
     """Extract a tool call JSON from LLM text output.
 
-    Searches the entire output for a JSON object containing a 'tool' or 'name'
-    key.  This tolerates LLM outputs that include a reasoning preamble before
-    the actual tool-call JSON (common in orchestration agents that plan before
+    Searches the entire output for a JSON object containing a 'tool' key.
+    This tolerates LLM outputs that include a reasoning preamble before the
+    actual tool-call JSON (common in orchestration agents that plan before
     acting).  JSON objects that appear at or near the start of the output are
     tried first so the fast path is preserved for well-behaved models.
 
     Also handles <tool_call>...</tool_call> XML wrappers emitted by CLI providers
     (claude, gemini, codex) that are instructed to use this format via system prompt.
+
+    Note: 'name' is deliberately NOT treated as an alias for 'tool' here — it
+    collides with domain JSON (e.g. an orchestration plan has a top-level `name`
+    field) and used to cause the planner's final output to be mis-parsed as a
+    tool call.  All LLM providers normalise their native tool-call shapes to
+    {"tool": ..., "arguments": ...} at the provider boundary before reaching
+    this parser.
     """
     cleaned = llm_output.replace("```json", "").replace("```", "").strip()
 
@@ -48,7 +55,7 @@ def parse_tool_call(llm_output: str) -> tuple[dict | None, str | None]:
     if _tc_match:
         try:
             obj = json.loads(_tc_match.group(1).strip())
-            if isinstance(obj, dict) and ("tool" in obj or "name" in obj):
+            if isinstance(obj, dict) and "tool" in obj:
                 return obj, None
         except json.JSONDecodeError:
             pass  # Fall through to bare-JSON detection
@@ -66,7 +73,7 @@ def parse_tool_call(llm_output: str) -> tuple[dict | None, str | None]:
     for pos in brace_positions:
         try:
             obj, _ = decoder.raw_decode(cleaned[pos:])
-            if isinstance(obj, dict) and ("tool" in obj or "name" in obj):
+            if isinstance(obj, dict) and "tool" in obj:
                 if pos > 0:
                     # LLM prefixed the JSON with preamble text — log it so we
                     # can monitor how often this happens.
@@ -214,6 +221,7 @@ async def run_agent_step(
     tool_executor=None,                   # async (name, args) -> str | None; None = fall through
     post_tool_hook=None,                  # async gen (name, raw_output) -> yields extra events
     history_override: list | None = None, # use instead of get_recent_history_messages
+    model_override: str | None = None,    # per-step model override (from StepConfig.model)
 ):
     """Lower-level single-agent ReAct execution.
 
@@ -238,7 +246,9 @@ async def run_agent_step(
     agent_model = active_agent.get("model")
     if agent_model and agent_model.strip().lower() in ("", "default"):
         agent_model = None
-    current_model = agent_model if agent_model else current_settings.get("model", "mistral")
+    # Precedence: per-step model (from orchestration) > per-agent model > global default
+    step_model = model_override.strip() if (model_override and model_override.strip().lower() not in ("", "default")) else None
+    current_model = step_model or agent_model or current_settings.get("model", "mistral")
     # Auto-detect mode from model name instead of relying on global mode
     from core.llm_providers import detect_mode_from_model
     mode = detect_mode_from_model(current_model)
@@ -416,7 +426,7 @@ async def run_agent_step(
                 if llm_output.strip():
                     current_context_text += f"\nAssistant Thought: {llm_output}\n"
 
-                tool_name = tool_call.get("tool") or tool_call.get("name")
+                tool_name = tool_call.get("tool", "")
                 tool_args = tool_call.get("arguments", {})
                 last_tool_logged = tool_name  # record for next turn's log entry
 
@@ -499,6 +509,25 @@ async def run_agent_step(
                             async for _extra in post_tool_hook(tool_name, raw_output):
                                 yield _extra
                         continue
+
+                # ===== NATIVE BUILDER TOOLS =====
+                # Registered as first-class tools in aggregate_all_tools. Any
+                # agent that declares these in its `tools` list lands here.
+                from core.builder_tools import BUILDER_TOOL_NAMES, execute_builder_tool
+                if tool_name in BUILDER_TOOL_NAMES:
+                    try:
+                        raw_output = await execute_builder_tool(tool_name, tool_args, server_module)
+                    except Exception as e:
+                        raw_output = json.dumps({"error": str(e)})
+                    current_context_text += f"\nTool '{tool_name}' Output: {raw_output}\n"
+                    tools_used_summary.append(f"{tool_name}: {raw_output}")
+                    preview = raw_output[:500] + "..." if len(raw_output) > 500 else raw_output
+                    print(f"DEBUG: 🏗 Builder tool ({tool_name}): {preview}")
+                    yield {"type": "tool_result", "tool_name": tool_name, "preview": preview}
+                    if post_tool_hook is not None:
+                        async for _extra in post_tool_hook(tool_name, raw_output):
+                            yield _extra
+                    continue
 
                 # ===== CUSTOM TOOLS (Webhook + Python) =====
 
